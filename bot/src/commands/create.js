@@ -2,7 +2,7 @@
 
 const db = require('../database/db');
 const logger = require('../utils/logger');
-const { sanitizePackName, buildPackName, getPackUrl } = require('../utils/sticker');
+const { sanitizePackName, buildPackName, getPackUrl, uploadStickerFile } = require('../utils/sticker');
 
 async function createCommand(ctx) {
   const args = ctx.message.text.split(' ').slice(1);
@@ -32,28 +32,33 @@ async function createCommand(ctx) {
   }
 
   const fullName = buildPackName(shortName, botUsername);
-
   const msg = await ctx.reply(`⏳ Pack "${title}" create လုပ်နေသည်...`);
 
   try {
-    // Upload a blank placeholder emoji first to create the set
     const sharp = require('sharp');
+    const botToken = process.env.BOT_TOKEN;
+
+    // Step 1: Create a 100x100 transparent WebP placeholder
     const placeholderBuffer = await sharp({
       create: {
         width: 100,
         height: 100,
         channels: 4,
-        background: { r: 0, g: 0, b: 0, alpha: 0 },
+        background: { r: 128, g: 128, b: 255, alpha: 255 },
       },
     }).webp().toBuffer();
 
+    // Step 2: Upload the placeholder to get a file_id (String)
+    const fileId = await uploadStickerFile(botToken, ctx.from.id, placeholderBuffer, 'static');
+
+    // Step 3: Create sticker set using file_id (String) — NOT buffer
     await ctx.telegram.callApi('createNewStickerSet', {
       user_id: ctx.from.id,
       name: fullName,
       title: title,
       stickers: [
         {
-          sticker: { source: placeholderBuffer },
+          sticker: fileId,        // ← Must be String (file_id)
           emoji_list: ['⭐'],
           format: 'static',
         },
@@ -62,10 +67,9 @@ async function createCommand(ctx) {
     });
 
     db.incrementPacksCreated(ctx.from.id);
-
     const packUrl = getPackUrl(fullName);
 
-    await ctx.telegram.deleteMessage(ctx.chat.id, msg.message_id);
+    await ctx.telegram.deleteMessage(ctx.chat.id, msg.message_id).catch(() => {});
     await ctx.replyWithMarkdown(
       `✅ *Pack Successfully Created!*\n\n` +
       `📦 *Title:* ${title}\n` +
@@ -79,7 +83,7 @@ async function createCommand(ctx) {
     await ctx.telegram.deleteMessage(ctx.chat.id, msg.message_id).catch(() => {});
     const errMsg = err.description || err.message || 'Unknown error';
 
-    if (errMsg.includes('STICKERSET_INVALID') || errMsg.includes('already occupied')) {
+    if (errMsg.includes('STICKERSET_INVALID') || errMsg.includes('already occupied') || errMsg.includes('already exists')) {
       return ctx.replyWithMarkdown(
         `❌ Pack name \`${fullName}\` is already taken.\n\nDifferent name ကို သုံးပါ: \`/create newname ${title}\``
       );

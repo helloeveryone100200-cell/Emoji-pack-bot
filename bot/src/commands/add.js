@@ -55,7 +55,7 @@ async function addCommand(ctx) {
 
 async function handleDocumentForAdd(ctx) {
   const session = db.getSession(ctx.from.id);
-  if (!session?.action === 'ADD_EMOJI' && session?.action !== 'ADD_EMOJI') return;
+  if (session?.action !== 'ADD_EMOJI') return;
 
   const doc = ctx.message.document;
   if (!doc) return;
